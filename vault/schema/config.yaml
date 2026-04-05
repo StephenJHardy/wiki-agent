@@ -1,0 +1,35 @@
+domain: general
+description: General-purpose persistent knowledge wiki.
+preferred_outputs:
+  - markdown
+frontmatter_fields:
+  - title
+  - type
+  - updated_at
+  - source_ids
+  - summary
+  - aliases
+  - tags
+  - related_topics
+required_sections:
+  source:
+    - Summary
+    - Key Points
+    - Entities
+    - Concepts
+    - Caveats
+  concept:
+    - Concept Summary
+    - Sources
+    - Related Pages
+  entity:
+    - Entity Summary
+    - Sources
+    - Related Pages
+  analysis:
+    - Answer
+    - Citations
+prompt_versions:
+  ingest: v1
+  query: v1
+  lint: v1

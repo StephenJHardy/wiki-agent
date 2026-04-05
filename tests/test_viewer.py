@@ -1,0 +1,118 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+from starlette.testclient import TestClient
+from typer.testing import CliRunner
+
+from llm_wiki.cli import app
+from llm_wiki.viewer import create_viewer_app, render_markdown_with_math
+
+runner = CliRunner()
+
+
+def test_render_markdown_with_math_preserves_latex_and_wiki_links() -> None:
+    html = render_markdown_with_math(
+        "See [[Euler]] and inline math $a_b + c$.\n\n$$x^2 + y^2 = z^2$$",
+        title_index={"Euler": "euler"},
+    )
+
+    assert 'href="/page/euler"' in html
+    assert "\\(a_b + c\\)" in html
+    assert "\\[x^2 + y^2 = z^2\\]" in html
+
+
+def test_viewer_page_route_renders_math_and_backlinks(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+    source_path = tmp_path / "vault/raw/sources/math.md"
+    source_path.write_text(
+        "\n".join(
+            [
+                "# Euler Notes",
+                "",
+                "Euler studies graph theory and the handshake lemma.",
+                "",
+                "## Formula",
+                "",
+                "- The classic identity is $e^{i\\pi}+1=0$.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["ingest", "math.md", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+
+    concept_path = tmp_path / "vault/wiki/concepts/formula.md"
+    concept_path.write_text(
+        "\n".join(
+            [
+                "---",
+                "title: Formula",
+                "type: concept",
+                "updated_at: '2026-04-05T20:00:00+10:00'",
+                "source_ids:",
+                "- math",
+                "summary: Formula is linked to [[Euler Notes]].",
+                "---",
+                "",
+                "## Concept Summary",
+                "Formula links back to [[Euler Notes]].",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+    response = client.get("/page/euler-notes")
+
+    assert response.status_code == 200
+    assert "Euler Notes" in response.text
+    assert "MathJax-script" in response.text
+    assert "\\(e^{i\\pi}+1=0\\)" in response.text
+
+
+def test_viewer_search_route_uses_retrieval(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+    source_path = tmp_path / "vault/raw/sources/retrieval.md"
+    source_path.write_text(
+        "\n".join(
+            [
+                "# Retrieval Augmented Generation",
+                "",
+                "RAG helps answer questions with external knowledge.",
+                "",
+                "## Retrieval",
+                "",
+                "- Retrieval improves grounded answers.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["ingest", "retrieval.md", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+    response = client.get("/?q=RAG")
+
+    assert response.status_code == 200
+    assert "Search Results" in response.text
+    assert "Retrieval Augmented Generation" in response.text
+
+
+def test_viewer_exposes_issues_and_operations_routes(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+    source_path = tmp_path / "vault/raw/sources/notes.md"
+    source_path.write_text(
+        "# Notes\n\nOpenAI discusses evaluation discipline, but the source page may become stale.",
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["ingest", "notes.md", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+    assert runner.invoke(app, ["lint", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+
+    issues_response = client.get("/issues")
+    operations_response = client.get("/operations")
+
+    assert issues_response.status_code == 200
+    assert "Maintenance Issues" in issues_response.text
+    assert operations_response.status_code == 200
+    assert "Operation Artifacts" in operations_response.text
