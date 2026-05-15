@@ -106,9 +106,16 @@ def schema_config_template(domain: str = "general") -> str:
               - aliases
               - tags
               - related_topics
+              - authors
+              - published_at
+              - published_at_precision
+              - venue
+              - doi
+              - arxiv_id
             required_sections:
               source:
                 - Summary
+                - Source Metadata
                 - Key Points
                 - Entities
                 - Concepts
@@ -116,10 +123,12 @@ def schema_config_template(domain: str = "general") -> str:
               concept:
                 - Concept Summary
                 - Sources
+                - Claim Timeline
                 - Related Pages
               entity:
                 - Entity Summary
                 - Sources
+                - Claim Timeline
                 - Related Pages
               analysis:
                 - Answer
@@ -149,9 +158,16 @@ def schema_config_template(domain: str = "general") -> str:
               - related_topics
               - confidence
               - last_reviewed_at
+              - authors
+              - published_at
+              - published_at_precision
+              - venue
+              - doi
+              - arxiv_id
             required_sections:
               source:
                 - Summary
+                - Source Metadata
                 - Key Points
                 - Entities
                 - Concepts
@@ -159,6 +175,7 @@ def schema_config_template(domain: str = "general") -> str:
               concept:
                 - Concept Summary
                 - Sources
+                - Claim Timeline
                 - Related Pages
               analysis:
                 - Answer
@@ -185,9 +202,13 @@ def schema_config_template(domain: str = "general") -> str:
               - aliases
               - tags
               - related_topics
+              - authors
+              - published_at
+              - published_at_precision
             required_sections:
               source:
                 - Summary
+                - Source Metadata
                 - Key Points
                 - Concepts
               analysis:
@@ -216,15 +237,20 @@ def schema_config_template(domain: str = "general") -> str:
               - aliases
               - tags
               - related_topics
+              - authors
+              - published_at
+              - published_at_precision
             required_sections:
               source:
                 - Summary
+                - Source Metadata
                 - Key Points
                 - Entities
                 - Concepts
               entity:
                 - Entity Summary
                 - Sources
+                - Claim Timeline
                 - Related Pages
               analysis:
                 - Answer
@@ -253,6 +279,7 @@ def schema_prompt_templates(domain: str = "general") -> dict[str, str]:
 
             - Keep source pages concise and evidence-focused.
             - Summaries should describe what the source says, not what the assistant thinks broadly.
+            - Preserve publication provenance when available: authors, publication date, venue, DOI, and arXiv ID.
             - Use wiki links to connect notable entities and concepts.
             """
         ).strip(),
@@ -262,6 +289,7 @@ def schema_prompt_templates(domain: str = "general") -> dict[str, str]:
 
             - Entity pages accumulate what the wiki currently believes about a named thing.
             - Prefer synthesis over copying raw source phrasing.
+            - Use Claim Timeline entries to show which sources introduced or reinforced the entity.
             """
         ).strip(),
         "concept.md": dedent(
@@ -270,6 +298,7 @@ def schema_prompt_templates(domain: str = "general") -> dict[str, str]:
 
             - Concept pages should synthesize recurring themes across sources.
             - Highlight contrasts, dependencies, and relationships when they matter.
+            - Use Claim Timeline entries to distinguish source publication dates from wiki ingest dates.
             """
         ).strip(),
         "analysis.md": dedent(

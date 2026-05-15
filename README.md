@@ -21,6 +21,8 @@ What exists today:
 - schema-driven prompt and domain configuration under `vault/schema/`
 - starter templates for `AGENTS.md`, `index.md`, `log.md`, and source state
 - metadata-enriched wiki page generation for source, entity, concept, and analysis pages
+- source publication provenance for authors, publication dates, venues, DOI, and arXiv IDs when available
+- generated claim timelines on entity and concept pages to distinguish publication dates from wiki ingest dates
 - index rebuilding and append-only logging across ingest, query, and lint
 - field-aware retrieval and ranking for wiki-backed query
 - MathJax-enabled markdown viewing for LaTeX-heavy wiki pages
@@ -81,6 +83,7 @@ Current commands:
 
 - `uv run llm-wiki init [PATH]`
 - `uv run llm-wiki ingest <SOURCE>`
+- `uv run llm-wiki ingest-dir <DIRECTORY>`
 - `uv run llm-wiki query "<QUESTION>"`
 - `uv run llm-wiki lint`
 - `uv run llm-wiki view`
@@ -100,15 +103,25 @@ uv run llm-wiki ingest transformers.pdf
 uv run llm-wiki ingest https://arxiv.org/html/1706.03762
 ```
 
+For a directory of local papers:
+
+```bash
+uv run llm-wiki ingest-dir /path/to/papers --path .
+```
+
 Ingest expects local sources to exist under `vault/raw/sources/` unless you pass an explicit path. When given an HTTP(S) URL, it first snapshots the remote document into `vault/raw/sources/` so the local vault remains the source of truth. Ingest currently:
 
 - registers the source in `vault/state/sources.json`
 - preserves the raw local source under `vault/raw/sources/`
 - writes derived markdown extraction for HTML and PDF sources to `vault/state/extracted/`
+- extracts bibliographic provenance such as authors, publication date, DOI, arXiv ID, and venue when available
 - creates or updates a source summary page in `vault/wiki/sources/`
 - creates or updates related entity and concept pages
+- adds claim timeline entries to entity and concept pages so the wiki can track which source introduced or reinforced a topic
 - rebuilds `vault/wiki/index.md`
 - appends an ingest entry to `vault/wiki/log.md`
+
+`ingest-dir` copies supported local files from the input directory into `vault/raw/sources/` first, then ingests those copied files. Unsupported files are skipped.
 
 If a supported LLM is configured in `.env`, ingest will use it automatically. Disable that path with `--no-llm`.
 
@@ -240,7 +253,7 @@ Example:
 ```bash
 GOOGLE_API_KEY=your-key
 LLM_WIKI_PROVIDER=gemini
-LLM_WIKI_MODEL=gemini-2.5-flash
+LLM_WIKI_MODEL=gemini-3-flash-preview
 ```
 
 Each command supports:

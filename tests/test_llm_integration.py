@@ -33,6 +33,12 @@ def test_ingest_uses_llm_provider_when_available(monkeypatch, tmp_path: Path) ->
                 entities=["Gemini"],
                 concepts=["Structured Output"],
                 caveats=["Needs review"],
+                authors=["Grace Hopper"],
+                published_at="2026-01-15",
+                published_at_precision="day",
+                venue="Example Journal",
+                doi="10.5555/example",
+                arxiv_id="2601.12345",
             )
         ),
     )
@@ -44,6 +50,8 @@ def test_ingest_uses_llm_provider_when_available(monkeypatch, tmp_path: Path) ->
     assert "LLM Driven Source" in source_page
     assert "[[Gemini]]" in source_page
     assert "[[Structured Output]]" in source_page
+    assert "published_at: '2026-01-15'" in source_page
+    assert "DOI: 10.5555/example" in source_page
 
 
 def test_query_uses_llm_provider_when_available(monkeypatch, tmp_path: Path) -> None:

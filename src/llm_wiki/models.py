@@ -24,6 +24,12 @@ class PageFrontmatter(BaseModel):
     derived_path: str | None = None
     original_url: str | None = None
     ingested_at: str | None = None
+    authors: list[str] = Field(default_factory=list)
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
 
 
 class WikiPage(BaseModel):
@@ -42,6 +48,12 @@ class SourceRecord(BaseModel):
     original_url: str | None = None
     ingested_at: str
     updated_at: str
+    authors: list[str] = Field(default_factory=list)
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
 
 
 class SourceRegistry(BaseModel):
@@ -55,3 +67,9 @@ class SourceAnalysis(BaseModel):
     entities: list[str] = Field(default_factory=list)
     concepts: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None

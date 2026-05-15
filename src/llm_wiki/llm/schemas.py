@@ -10,6 +10,12 @@ class StructuredIngestAnalysis(BaseModel):
     entities: list[str] = Field(default_factory=list)
     concepts: list[str] = Field(default_factory=list)
     caveats: list[str] = Field(default_factory=list)
+    authors: list[str] = Field(default_factory=list)
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
 
 
 class StructuredQuerySynthesis(BaseModel):

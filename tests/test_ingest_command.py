@@ -21,6 +21,10 @@ def test_ingest_creates_source_pages_and_registry(tmp_path: Path) -> None:
             [
                 "# Attention and Memory",
                 "",
+                "Authors: Ada Lovelace and Alan Turing",
+                "Published: May 17, 2024",
+                "DOI: 10.1234/example.doi",
+                "",
                 "Attention shapes how Memory is encoded in learning systems.",
                 "OpenAI and Anthropic both discuss evaluation discipline in applied LLM work.",
                 "",
@@ -43,11 +47,23 @@ def test_ingest_creates_source_pages_and_registry(tmp_path: Path) -> None:
     registry = json.loads((tmp_path / "vault/state/sources.json").read_text(encoding="utf-8"))
     assert registry["sources"][0]["source_id"] == "attention"
     assert registry["sources"][0]["title"] == "Attention and Memory"
+    assert registry["sources"][0]["authors"] == ["Ada Lovelace", "Alan Turing"]
+    assert registry["sources"][0]["published_at"] == "2024-05-17"
+    assert registry["sources"][0]["published_at_precision"] == "day"
+    assert registry["sources"][0]["doi"] == "10.1234/example.doi"
 
     source_page = (tmp_path / "vault/wiki/sources/attention.md").read_text(encoding="utf-8")
     assert "type: source" in source_page
+    assert "authors:" in source_page
+    assert "published_at: '2024-05-17'" in source_page
+    assert "## Source Metadata" in source_page
+    assert "- Authors: Ada Lovelace, Alan Turing" in source_page
     assert "[[OpenAI]]" in source_page
     assert "[[Retrieval]]" in source_page
+
+    concept_page = (tmp_path / "vault/wiki/concepts/retrieval.md").read_text(encoding="utf-8")
+    assert "## Claim Timeline" in concept_page
+    assert "2024-05-17: Ada Lovelace, Alan Turing, [[Attention and Memory]] discusses [[Retrieval]]" in concept_page
 
     index_page = (tmp_path / "vault/wiki/index.md").read_text(encoding="utf-8")
     assert "[[Attention and Memory]]" in index_page
@@ -187,3 +203,26 @@ def test_ingest_dry_run_does_not_write_wiki_changes(tmp_path: Path) -> None:
     assert not (tmp_path / "vault/wiki/sources/dry-run.md").exists()
     operations = list((tmp_path / "vault/state/operations").glob("*.json"))
     assert operations
+
+
+def test_ingest_dir_copies_supported_files_into_raw_sources_and_ingests(tmp_path: Path) -> None:
+    init_result = runner.invoke(app, ["init", str(tmp_path)])
+    assert init_result.exit_code == 0
+
+    papers_dir = tmp_path / "papers"
+    papers_dir.mkdir()
+    (papers_dir / "paper-a.md").write_text("# Paper A\n\nAttention improves sequence modeling.", encoding="utf-8")
+    (papers_dir / "paper-b.txt").write_text("Evaluation discipline matters for durable systems.", encoding="utf-8")
+    (papers_dir / "notes.png").write_bytes(b"not-a-real-image")
+
+    result = runner.invoke(app, ["ingest-dir", str(papers_dir), "--path", str(tmp_path), "--no-llm"])
+
+    assert result.exit_code == 0
+    assert (tmp_path / "vault/raw/sources/paper-a.md").exists()
+    assert (tmp_path / "vault/raw/sources/paper-b.txt").exists()
+    assert not (tmp_path / "vault/raw/sources/notes.png").exists()
+    assert (tmp_path / "vault/wiki/sources/paper-a.md").exists()
+    assert (tmp_path / "vault/wiki/sources/paper-b.md").exists()
+
+    registry = json.loads((tmp_path / "vault/state/sources.json").read_text(encoding="utf-8"))
+    assert len(registry["sources"]) == 2

@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 DEFAULT_PROVIDER = "gemini"
-DEFAULT_MODEL = "gemini-2.5-flash"
+DEFAULT_MODEL = "gemini-3-flash-preview"
 DEFAULT_TEMPERATURE = 0.0
 DEFAULT_TIMEOUT_SECONDS = 30.0
 

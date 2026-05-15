@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from hashlib import sha1, sha256
 from pathlib import Path
+from shutil import copy2
 from urllib.parse import unquote, urlparse
 from urllib.request import Request, urlopen
 
@@ -93,6 +94,30 @@ def prepare_source(base_path: Path, source_arg: str, vault_name: str = DEFAULT_V
     )
 
 
+def import_local_source(
+    source_path: Path,
+    *,
+    source_root: Path,
+    source_base: Path | None = None,
+) -> Path:
+    resolved = source_path.resolve()
+    if source_root in resolved.parents:
+        return resolved
+
+    file_type = detect_source_file_type(resolved)
+    if file_type is None:
+        raise ValueError(f"Unsupported source type for import: {resolved.name}")
+
+    target = build_import_target(resolved, source_root=source_root, source_base=source_base)
+    if target.exists():
+        if compute_checksum(target) == compute_checksum(resolved):
+            return target
+        target = target.with_name(f"{target.stem}-{compute_checksum(resolved)[:8]}{target.suffix}")
+    ensure_directory(target.parent)
+    copy2(resolved, target)
+    return target
+
+
 def resolve_source_path(base_path: Path, source_arg: str, vault_name: str) -> Path:
     candidate = Path(source_arg)
     if candidate.is_absolute():
@@ -160,6 +185,19 @@ def build_snapshot_path(source_root: Path, url: str, suffix: str) -> Path:
     url_hash = sha1(url.encode("utf-8")).hexdigest()[:8]
     ensure_directory(source_root)
     return source_root / f"{stem}-{url_hash}{suffix}"
+
+
+def build_import_target(source_path: Path, *, source_root: Path, source_base: Path | None) -> Path:
+    if source_base is not None:
+        try:
+            relative = source_path.relative_to(source_base)
+            stem = slugify(str(relative.with_suffix("")))
+        except ValueError:
+            stem = slugify(source_path.stem)
+    else:
+        stem = slugify(source_path.stem)
+    filename = f"{stem}{source_path.suffix.lower()}"
+    return source_root / filename
 
 
 def extract_html_source(path: Path, *, original_url: str | None) -> str:

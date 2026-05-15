@@ -9,3 +9,11 @@ __pycache__/
 .env.*
 !.env.example
 .sesskey
+
+# Local/generated wiki vault contents.
+# The canonical scaffold lives in src/llm_wiki/templates.py; a repo-local
+# vault is runtime data and should not be reviewed as source code.
+vault/raw/
+vault/wiki/
+vault/state/
+vault/schema/

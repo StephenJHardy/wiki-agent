@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from collections import Counter
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
@@ -115,6 +116,16 @@ ENTITY_STOPWORDS = {
 CAVEAT_MARKERS = ("however", "but", "although", "despite", "yet", "unless", "while")
 
 
+@dataclass(slots=True)
+class SourceProvenance:
+    authors: list[str]
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    venue: str | None = None
+    doi: str | None = None
+    arxiv_id: str | None = None
+
+
 class IngestResult:
     def __init__(
         self,
@@ -180,6 +191,12 @@ def ingest_source(
         original_url=prepared_source.original_url,
         ingested_at=ingested_at,
         updated_at=timestamp,
+        authors=analysis.authors,
+        published_at=analysis.published_at,
+        published_at_precision=analysis.published_at_precision,
+        venue=analysis.venue,
+        doi=analysis.doi,
+        arxiv_id=analysis.arxiv_id,
     )
     registry = upsert_source_record(registry, record)
 
@@ -286,6 +303,12 @@ def ingest_source(
                 "source_path": record.path,
                 "extracted_path": record.extracted_path,
                 "original_url": record.original_url,
+                "authors": record.authors,
+                "published_at": record.published_at,
+                "published_at_precision": record.published_at_precision,
+                "venue": record.venue,
+                "doi": record.doi,
+                "arxiv_id": record.arxiv_id,
                 "updated_pages": [path.relative_to(wiki_root).as_posix() for path in updated_pages],
             },
             change_summary={
@@ -332,13 +355,15 @@ def analyze_source(
         return llm_analysis, True
 
     title = extract_title(path, text)
-    plain_text = markdown_to_text(text)
+    content_text = remove_labeled_metadata_lines(text)
+    plain_text = markdown_to_text(content_text)
     sentences = split_sentences(plain_text)
     summary = summarize(sentences, plain_text, title)
-    key_points = extract_key_points(text, sentences)
+    key_points = extract_key_points(content_text, sentences)
     entities = extract_entities(plain_text, title)
-    concepts = extract_concepts(text, plain_text, title, entities)
+    concepts = extract_concepts(content_text, plain_text, title, entities)
     caveats = extract_caveats(sentences)
+    provenance = extract_source_provenance(text)
     return (
         SourceAnalysis(
             title=title,
@@ -347,6 +372,12 @@ def analyze_source(
             entities=entities,
             concepts=concepts,
             caveats=caveats,
+            authors=provenance.authors,
+            published_at=provenance.published_at,
+            published_at_precision=provenance.published_at_precision,
+            venue=provenance.venue,
+            doi=provenance.doi,
+            arxiv_id=provenance.arxiv_id,
         ),
         False,
     )
@@ -400,6 +431,12 @@ def analyze_source_with_llm(
         entities=dedupe_keep_order(structured.entities),
         concepts=dedupe_keep_order(structured.concepts),
         caveats=dedupe_keep_order(structured.caveats),
+        authors=dedupe_keep_order(structured.authors),
+        published_at=normalize_date_value(structured.published_at),
+        published_at_precision=normalize_precision(structured.published_at_precision),
+        venue=clean_optional_text(structured.venue),
+        doi=clean_optional_text(structured.doi),
+        arxiv_id=clean_optional_text(structured.arxiv_id),
     )
 
 
@@ -426,6 +463,30 @@ def markdown_to_text(text: str) -> str:
         if cleaned:
             lines.append(cleaned)
     return ". ".join(lines).strip()
+
+
+def remove_labeled_metadata_lines(text: str) -> str:
+    metadata_labels = (
+        "author",
+        "authors",
+        "published",
+        "publication date",
+        "date",
+        "submitted",
+        "received",
+        "accepted",
+        "venue",
+        "journal",
+        "publication",
+        "doi",
+        "arxiv",
+    )
+    label_pattern = "|".join(re.escape(label) for label in metadata_labels)
+    return "\n".join(
+        line
+        for line in text.splitlines()
+        if not re.match(rf"^\s*(?:{label_pattern})\s*:", line, flags=re.IGNORECASE)
+    )
 
 
 def split_sentences(text: str) -> list[str]:
@@ -493,6 +554,131 @@ def extract_caveats(sentences: list[str]) -> list[str]:
     return dedupe_keep_order(caveats)[:3]
 
 
+def extract_source_provenance(text: str) -> SourceProvenance:
+    header_text = "\n".join(text.splitlines()[:40])
+    authors = extract_authors(header_text)
+    published_at, published_at_precision = extract_publication_date(header_text)
+    return SourceProvenance(
+        authors=authors,
+        published_at=published_at,
+        published_at_precision=published_at_precision,
+        venue=extract_labeled_value(header_text, ("venue", "journal", "publication")),
+        doi=extract_doi(text),
+        arxiv_id=extract_arxiv_id(text),
+    )
+
+
+def extract_authors(header_text: str) -> list[str]:
+    labeled = extract_labeled_value(header_text, ("authors", "author"))
+    if labeled:
+        return split_author_list(labeled)
+
+    lines = [line.strip() for line in header_text.splitlines() if line.strip()]
+    for index, line in enumerate(lines):
+        if line.startswith("#"):
+            continue
+        if index > 0 and re.search(r"\b(and|,)\b", line, flags=re.IGNORECASE):
+            cleaned = clean_author_line(line)
+            authors = split_author_list(cleaned)
+            if authors:
+                return authors[:12]
+    return []
+
+
+def split_author_list(value: str) -> list[str]:
+    value = re.sub(r"\bet al\.?", "", value, flags=re.IGNORECASE)
+    value = value.replace(" and ", ", ")
+    parts = [clean_author_name(part) for part in value.split(",")]
+    return dedupe_keep_order([part for part in parts if len(part.split()) >= 2])[:20]
+
+
+def clean_author_line(value: str) -> str:
+    cleaned = re.sub(r"\[[^\]]*\]", " ", value)
+    cleaned = re.sub(r"\([^)]*\)", " ", cleaned)
+    cleaned = re.sub(r"_|\\|`|\*|,", lambda match: "," if match.group(0) == "," else " ", cleaned)
+    return re.sub(r"\s+", " ", cleaned).strip()
+
+
+def clean_author_name(value: str) -> str:
+    cleaned = clean_author_line(value)
+    cleaned = re.sub(r"\b(department|university|institute|college|school|centre|center)\b.*", "", cleaned, flags=re.IGNORECASE)
+    return cleaned.strip(" ,.;")
+
+
+def extract_publication_date(text: str) -> tuple[str | None, str | None]:
+    patterns = [
+        r"\bDated:\s*([A-Z][a-z]+\s+\d{1,2},\s+\d{4})",
+        r"\b(?:Published|Publication date|Date|Submitted|Received|Accepted):\s*([A-Z][a-z]+\s+\d{1,2},\s+\d{4})",
+        r"\b(?:Published|Publication date|Date|Submitted|Received|Accepted):\s*(\d{4}-\d{2}-\d{2})",
+        r"\b(?:Published|Publication date|Date|Submitted|Received|Accepted):\s*([A-Z][a-z]+\s+\d{4})",
+        r"\b(?:Published|Publication date|Date|Submitted|Received|Accepted):\s*(\d{4})",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, text, flags=re.IGNORECASE)
+        if not match:
+            continue
+        normalized, precision = parse_publication_date(match.group(1))
+        if normalized:
+            return normalized, precision
+    return None, None
+
+
+def parse_publication_date(value: str) -> tuple[str | None, str | None]:
+    raw = value.strip().rstrip(".")
+    for fmt in ("%B %d, %Y", "%b %d, %Y", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat(), "day"
+        except ValueError:
+            pass
+    for fmt in ("%B %Y", "%b %Y"):
+        try:
+            return datetime.strptime(raw, fmt).date().isoformat()[:7], "month"
+        except ValueError:
+            pass
+    if re.fullmatch(r"\d{4}", raw):
+        return raw, "year"
+    return None, None
+
+
+def normalize_date_value(value: str | None) -> str | None:
+    if value is None:
+        return None
+    parsed, _ = parse_publication_date(value)
+    return parsed or clean_optional_text(value)
+
+
+def normalize_precision(value: str | None) -> str | None:
+    cleaned = clean_optional_text(value)
+    if cleaned in {"day", "month", "year"}:
+        return cleaned
+    return None
+
+
+def extract_labeled_value(text: str, labels: tuple[str, ...]) -> str | None:
+    label_pattern = "|".join(re.escape(label) for label in labels)
+    match = re.search(rf"^\s*(?:{label_pattern})\s*:\s*(.+)$", text, flags=re.IGNORECASE | re.MULTILINE)
+    if not match:
+        return None
+    return clean_optional_text(match.group(1))
+
+
+def extract_doi(text: str) -> str | None:
+    match = re.search(r"\b(10\.\d{4,9}/[-._;()/:A-Z0-9]+)", text, flags=re.IGNORECASE)
+    return clean_optional_text(match.group(1)) if match else None
+
+
+def extract_arxiv_id(text: str) -> str | None:
+    match = re.search(r"\barxiv[:\s]+([0-9]{4}\.[0-9]{4,5}(?:v\d+)?)", text, flags=re.IGNORECASE)
+    return clean_optional_text(match.group(1)) if match else None
+
+
+def clean_optional_text(value: str | None) -> str | None:
+    if value is None:
+        return None
+    cleaned = re.sub(r"\s+", " ", value).strip(" .,;")
+    return cleaned or None
+
+
 def dedupe_keep_order(values: list[str]) -> list[str]:
     seen: set[str] = set()
     deduped: list[str] = []
@@ -537,13 +723,25 @@ def build_source_page(
         derived_path=record.extracted_path,
         original_url=record.original_url,
         ingested_at=record.ingested_at,
+        authors=record.authors,
+        published_at=record.published_at,
+        published_at_precision=record.published_at_precision,
+        venue=record.venue,
+        doi=record.doi,
+        arxiv_id=record.arxiv_id,
     )
     sections = [
         "## Summary",
         analysis.summary,
         "",
-        "## Key Points",
+        "## Source Metadata",
     ]
+    metadata_lines = render_source_metadata_lines(record)
+    sections.extend(metadata_lines if metadata_lines else ["- No publication metadata extracted."])
+    sections.extend([
+        "",
+        "## Key Points",
+    ])
     if analysis.key_points:
         sections.extend([f"- {point}" for point in analysis.key_points])
     else:
@@ -571,6 +769,37 @@ def build_source_page(
     return target, render_page(frontmatter, "\n".join(sections))
 
 
+def render_source_metadata_lines(record: SourceRecord) -> list[str]:
+    lines: list[str] = []
+    if record.authors:
+        lines.append("- Authors: " + ", ".join(record.authors))
+    if record.published_at:
+        precision = f" ({record.published_at_precision})" if record.published_at_precision else ""
+        lines.append(f"- Published: {record.published_at}{precision}")
+    if record.venue:
+        lines.append(f"- Venue: {record.venue}")
+    if record.doi:
+        lines.append(f"- DOI: {record.doi}")
+    if record.arxiv_id:
+        lines.append(f"- arXiv: {record.arxiv_id}")
+    lines.append(f"- Ingested into wiki: {record.ingested_at}")
+    return lines
+
+
+def build_topic_timeline_line(*, title: str, record: SourceRecord, page_type: str) -> str:
+    date_label = record.published_at or record.ingested_at
+    date_kind = "published" if record.published_at else "ingested"
+    verb = "mentions" if page_type == "entity" else "discusses"
+    author_label = ", ".join(record.authors[:3])
+    if record.authors and len(record.authors) > 3:
+        author_label += ", et al."
+    prefix = f"{author_label}, " if author_label else ""
+    return (
+        f"- {date_label}: {prefix}[[{record.title}]] {verb} [[{title}]]. "
+        f"[source: {record.source_id}; date: {date_kind}; observed: {record.ingested_at}]"
+    )
+
+
 def build_topic_page(
     *,
     wiki_root: Path,
@@ -582,17 +811,18 @@ def build_topic_page(
 ) -> tuple[Path, str]:
     directory = WIKI_SECTION_DIRECTORY[page_type]
     target = wiki_root / directory / f"{slugify(title)}.md"
+    timeline_line = build_topic_timeline_line(title=title, record=record, page_type=page_type)
     if target.exists():
         existing_page = load_page(target)
         source_ids = dedupe_keep_order(existing_page.frontmatter.source_ids + [record.source_id])
-        body = merge_topic_body(existing_page.body, record.title, summary_line)
+        body = merge_topic_body(existing_page.body, record.title, summary_line, timeline_line)
         aliases = dedupe_keep_order(existing_page.frontmatter.aliases + build_aliases(title))
         tags = dedupe_keep_order(existing_page.frontmatter.tags + [page_type])
         related_topics = dedupe_keep_order(existing_page.frontmatter.related_topics + [record.title])
         summary = existing_page.frontmatter.summary or topic_summary(page_type, title)
     else:
         source_ids = [record.source_id]
-        body = build_new_topic_body(page_type, title, record.title, summary_line)
+        body = build_new_topic_body(page_type, title, record.title, summary_line, timeline_line)
         aliases = build_aliases(title)
         tags = [page_type]
         related_topics = [record.title]
@@ -627,7 +857,7 @@ def topic_summary(page_type: str, title: str) -> str:
     return f"{title} is a tracked {page_type} page in this wiki."
 
 
-def build_new_topic_body(page_type: str, title: str, source_title: str, summary_line: str) -> str:
+def build_new_topic_body(page_type: str, title: str, source_title: str, summary_line: str, timeline_line: str) -> str:
     section_label = "Entity" if page_type == "entity" else "Concept"
     return "\n".join(
         [
@@ -637,13 +867,16 @@ def build_new_topic_body(page_type: str, title: str, source_title: str, summary_
             "## Sources",
             summary_line,
             "",
+            "## Claim Timeline",
+            timeline_line,
+            "",
             "## Related Pages",
             f"- [[{source_title}]]",
         ]
     )
 
 
-def merge_topic_body(existing_body: str, source_title: str, summary_line: str) -> str:
+def merge_topic_body(existing_body: str, source_title: str, summary_line: str, timeline_line: str) -> str:
     lines = existing_body.splitlines()
     if summary_line not in lines:
         try:
@@ -655,6 +888,17 @@ def merge_topic_body(existing_body: str, source_title: str, summary_line: str) -
             while insert_index < len(lines) and lines[insert_index].startswith("- "):
                 insert_index += 1
             lines.insert(insert_index, summary_line)
+
+    if timeline_line not in lines:
+        try:
+            timeline_index = lines.index("## Claim Timeline")
+        except ValueError:
+            lines.extend(["", "## Claim Timeline", timeline_line])
+        else:
+            insert_index = timeline_index + 1
+            while insert_index < len(lines) and lines[insert_index].startswith("- "):
+                insert_index += 1
+            lines.insert(insert_index, timeline_line)
 
     related_line = f"- [[{source_title}]]"
     if related_line not in lines:

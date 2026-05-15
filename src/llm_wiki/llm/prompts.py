@@ -73,7 +73,11 @@ def build_ingest_prompt(
             (
                 "Return a concise structured analysis for ingestion. "
                 "Prefer stable entity and concept names, avoid duplicates, "
-                "and capture caveats or contradictions when present."
+                "capture caveats or contradictions when present, and extract "
+                "source provenance such as authors, publication date, venue, DOI, "
+                "or arXiv identifier when the source provides them. "
+                "Use ISO dates for published_at and set published_at_precision "
+                "to day, month, or year."
             ),
         ]
     )

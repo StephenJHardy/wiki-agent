@@ -4,6 +4,7 @@ import typer
 
 from .commands.init import init_command
 from .commands.ingest import ingest_command
+from .commands.ingest_dir import ingest_dir_command
 from .commands.lint import lint_command
 from .commands.query import query_command
 from .commands.view import view_command
@@ -16,6 +17,7 @@ app = typer.Typer(
 
 app.command("init")(init_command)
 app.command("ingest")(ingest_command)
+app.command("ingest-dir")(ingest_dir_command)
 app.command("query")(query_command)
 app.command("lint")(lint_command)
 app.command("view")(view_command)
