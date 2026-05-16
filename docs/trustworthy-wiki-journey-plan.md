@@ -150,6 +150,8 @@ Implementation notes:
 
 Goal: turn lint from a report into a maintenance workflow.
 
+Status: implemented for conservative deterministic fixes. Broader ambiguous fixes remain suggestions.
+
 Current lint can report issues and persist issue state. The next step is to let lint propose fixes as reviewable plans.
 
 Initial fix classes:
@@ -161,12 +163,25 @@ Initial fix classes:
 - pages missing from `index.md`
 - orphan pages that can be linked from known related topics
 
+Implemented fix classes:
+
+- pages missing from `index.md`
+- missing `Claim Timeline` sections on entity and concept pages
+- broken wiki links where the target has an exact case-insensitive page-title match
+
 New command shape:
 
 ```bash
 llm-wiki lint --propose-fixes
 llm-wiki lint --propose-fixes --review
 ```
+
+Implemented behavior:
+
+- `lint --propose-fixes` prints conservative change-plan previews
+- `lint --propose-fixes --review` saves those plans under `vault/state/reviews/pending/`
+- proposed fixes are not applied directly by lint
+- fixes are applied through `llm-wiki review apply <review-id>`
 
 Rules:
 

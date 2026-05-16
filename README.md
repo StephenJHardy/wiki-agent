@@ -205,6 +205,14 @@ Lint currently checks for:
 
 When Gemini is configured, lint can add model-assisted review findings on contradictions, stale claims, missing pages, and research gaps.
 
+Lint can also propose conservative reviewable fixes:
+
+```bash
+uv run llm-wiki lint --propose-fixes --review
+```
+
+Current fix proposals cover missing index entries, missing `Claim Timeline` sections, and broken wiki links where the target page differs only by casing. Lint does not apply those edits directly; apply them through `llm-wiki review apply <review-id>`.
+
 Example viewer flow:
 
 ```bash

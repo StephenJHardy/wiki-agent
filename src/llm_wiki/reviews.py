@@ -165,7 +165,7 @@ def move_review(*, state_root: Path, review: ReviewPlan, status: str) -> ReviewP
 
 
 def build_review_id(plan: ChangePlan) -> str:
-    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S")
+    stamp = datetime.now().astimezone().strftime("%Y%m%dT%H%M%S%f")
     return slugify(f"{stamp}-{plan.operation}-{plan.title}")[:120]
 
 

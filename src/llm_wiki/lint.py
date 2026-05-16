@@ -107,6 +107,7 @@ def run_lint(
     issues.extend(orphan_page_issues(pages, inbound_counts))
     issues.extend(unlinked_cluster_issues(pages, outbound_links, inbound_counts))
     issues.extend(missing_cross_reference_issues(pages, outbound_links, path_by_title))
+    issues.extend(missing_claim_timeline_issues(pages))
 
     llm_issues, llm_used = llm_review(
         base_path=base_path,
@@ -216,6 +217,183 @@ def run_lint(
         artifact_path=artifact_path,
         dry_run=dry_run,
     )
+
+
+def propose_lint_fix_plans(
+    *,
+    base_path: Path,
+    issues: list[LintIssue],
+    vault_name: str = DEFAULT_VAULT_DIRNAME,
+    max_file_changes: int | None = None,
+) -> list[ChangePlan]:
+    wiki_root = resolve_wiki_root(base_path, vault_name)
+    _, schema_bundle = load_prompt_context(base_path=base_path, vault_name=vault_name)
+    timestamp = datetime.now().astimezone().isoformat(timespec="seconds")
+    metadata = OperationMetadata(
+        timestamp=timestamp,
+        operation="lint-fix",
+        schema_domain=schema_bundle.config.domain,
+        prompt_versions=schema_bundle.config.prompt_versions,
+    )
+
+    pages = collect_wiki_pages(wiki_root)
+    plans: list[ChangePlan] = []
+
+    index_plan = propose_index_fix(wiki_root=wiki_root, pages=pages, issues=issues, metadata=metadata)
+    if index_plan is not None:
+        index_plan.validate(max_file_changes=max_file_changes)
+        plans.append(index_plan)
+
+    claim_timeline_plan = propose_claim_timeline_fix(wiki_root=wiki_root, pages=pages, issues=issues, metadata=metadata)
+    if claim_timeline_plan is not None:
+        claim_timeline_plan.validate(max_file_changes=max_file_changes)
+        plans.append(claim_timeline_plan)
+
+    link_fix_plan = propose_obvious_broken_link_fix(wiki_root=wiki_root, pages=pages, issues=issues, metadata=metadata)
+    if link_fix_plan is not None:
+        link_fix_plan.validate(max_file_changes=max_file_changes)
+        plans.append(link_fix_plan)
+
+    return plans
+
+
+def propose_index_fix(
+    *,
+    wiki_root: Path,
+    pages: list,
+    issues: list[LintIssue],
+    metadata: OperationMetadata,
+) -> ChangePlan | None:
+    index_issues = [issue for issue in issues if issue.category == "index_coverage"]
+    if not index_issues:
+        return None
+    index_after = render_index(wiki_root=wiki_root, pages=pages)
+    return ChangePlan(
+        operation="lint-fix",
+        title="Rebuild index coverage",
+        metadata=metadata,
+        detail_lines=[
+            "- Fixes lint issue category: `index_coverage`",
+            f"- Pages restored to index: {len(index_issues)}",
+        ],
+        changes=build_changes([(wiki_root / "index.md", index_after)]),
+    )
+
+
+def propose_claim_timeline_fix(
+    *,
+    wiki_root: Path,
+    pages: list,
+    issues: list[LintIssue],
+    metadata: OperationMetadata,
+) -> ChangePlan | None:
+    issue_titles = {
+        title
+        for issue in issues
+        if issue.category == "missing_claim_timeline"
+        for title in issue.related_pages
+    }
+    if not issue_titles:
+        return None
+
+    changes: list[tuple[Path, str]] = []
+    for page in pages:
+        if page.frontmatter.title not in issue_titles:
+            continue
+        body_after = append_claim_timeline_placeholder(page.body)
+        if body_after == page.body:
+            continue
+        changes.append((Path(page.path), render_page_from_existing(page, body_after)))
+
+    if not changes:
+        return None
+    return ChangePlan(
+        operation="lint-fix",
+        title="Add missing claim timeline sections",
+        metadata=metadata,
+        detail_lines=[
+            "- Fixes lint issue category: `missing_claim_timeline`",
+            f"- Pages updated: {len(changes)}",
+            "- Placeholder entries are intentionally conservative; run `refresh-source` to backfill source-specific entries.",
+        ],
+        changes=build_changes(changes),
+    )
+
+
+def propose_obvious_broken_link_fix(
+    *,
+    wiki_root: Path,
+    pages: list,
+    issues: list[LintIssue],
+    metadata: OperationMetadata,
+) -> ChangePlan | None:
+    broken_issues = [issue for issue in issues if issue.category == "broken_link"]
+    if not broken_issues:
+        return None
+
+    title_by_casefold = {page.frontmatter.title.casefold(): page.frontmatter.title for page in pages}
+    pages_by_title = {page.frontmatter.title: page for page in pages}
+    replacements_by_page: defaultdict[str, dict[str, str]] = defaultdict(dict)
+    for issue in broken_issues:
+        if len(issue.related_pages) != 1:
+            continue
+        broken_link = extract_broken_link_from_detail(issue.detail)
+        if broken_link is None:
+            continue
+        corrected = title_by_casefold.get(broken_link.casefold())
+        if corrected is None or corrected == broken_link:
+            continue
+        source_title = issue.related_pages[0]
+        replacements_by_page[source_title][broken_link] = corrected
+
+    changes: list[tuple[Path, str]] = []
+    for title, replacements in sorted(replacements_by_page.items()):
+        page = pages_by_title.get(title)
+        if page is None:
+            continue
+        body_after = page.body
+        for before, after in sorted(replacements.items()):
+            body_after = body_after.replace(f"[[{before}]]", f"[[{after}]]")
+        if body_after != page.body:
+            changes.append((Path(page.path), render_page_from_existing(page, body_after)))
+
+    if not changes:
+        return None
+    return ChangePlan(
+        operation="lint-fix",
+        title="Fix obvious broken wiki-link casing",
+        metadata=metadata,
+        detail_lines=[
+            "- Fixes lint issue category: `broken_link`",
+            "- Only exact case-insensitive title matches are rewritten.",
+            f"- Pages updated: {len(changes)}",
+        ],
+        changes=build_changes(changes),
+    )
+
+
+def append_claim_timeline_placeholder(body: str) -> str:
+    stripped = body.rstrip()
+    if "## Claim Timeline" in stripped:
+        return body
+    return (
+        stripped
+        + "\n\n## Claim Timeline\n"
+        + "- No claim timeline entries yet. Run `llm-wiki refresh-source` to backfill source-specific provenance.\n"
+    )
+
+
+def render_page_from_existing(page, body: str) -> str:
+    from .markdown import render_page
+
+    return render_page(page.frontmatter, body)
+
+
+def extract_broken_link_from_detail(detail: str) -> str | None:
+    links = extract_wiki_links(detail)
+    if len(links) < 2:
+        return None
+    return links[-1]
 
 
 def broken_link_issues(pages: list, title_to_page: dict[str, object]) -> list[LintIssue]:
@@ -374,6 +552,27 @@ def missing_cross_reference_issues(
                         suggestion=f"Consider linking [[{title}]] to {', '.join(f'[[{other}]]' for other in related[:3])}.",
                     )
                 )
+    return issues
+
+
+def missing_claim_timeline_issues(pages: list) -> list[LintIssue]:
+    issues: list[LintIssue] = []
+    for page in pages:
+        if page.frontmatter.type not in {"entity", "concept"}:
+            continue
+        if "## Claim Timeline" in page.body:
+            continue
+        issues.append(
+            lint_issue(
+                category="missing_claim_timeline",
+                severity="suggestion",
+                confidence=0.9,
+                title=f"Missing claim timeline: {page.frontmatter.title}",
+                detail=f"[[{page.frontmatter.title}]] has no `Claim Timeline` section.",
+                related_pages=[page.frontmatter.title],
+                suggestion=f"Add a `Claim Timeline` section to [[{page.frontmatter.title}]] or refresh its source pages.",
+            )
+        )
     return issues
 
 
