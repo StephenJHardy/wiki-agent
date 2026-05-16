@@ -84,11 +84,13 @@ Current commands:
 - `uv run llm-wiki init [PATH]`
 - `uv run llm-wiki ingest <SOURCE>`
 - `uv run llm-wiki ingest-dir <DIRECTORY>`
+- `uv run llm-wiki refresh-source <SOURCE_ID>`
+- `uv run llm-wiki rebuild-index`
 - `uv run llm-wiki query "<QUESTION>"`
 - `uv run llm-wiki lint`
 - `uv run llm-wiki view`
 
-All five commands are implemented.
+All commands are implemented.
 
 Example ingest flow:
 
@@ -122,6 +124,21 @@ Ingest expects local sources to exist under `vault/raw/sources/` unless you pass
 - appends an ingest entry to `vault/wiki/log.md`
 
 `ingest-dir` copies supported local files from the input directory into `vault/raw/sources/` first, then ingests those copied files. Unsupported files are skipped.
+
+Refresh existing registered sources when extractor behavior or schema conventions improve:
+
+```bash
+uv run llm-wiki refresh-source attention-paper --path .
+uv run llm-wiki refresh-source --all --path .
+```
+
+Refresh reloads source records from `vault/state/sources.json`, reprocesses the raw source, backfills source metadata and claim timelines, rebuilds `index.md`, appends a `refresh` log entry, and saves an operation artifact.
+
+If `index.md` needs to be rebuilt without reprocessing sources:
+
+```bash
+uv run llm-wiki rebuild-index --path .
+```
 
 If a supported LLM is configured in `.env`, ingest will use it automatically. Disable that path with `--no-llm`.
 

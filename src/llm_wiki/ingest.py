@@ -151,6 +151,7 @@ def ingest_source(
     source_arg: str,
     vault_name: str = DEFAULT_VAULT_DIRNAME,
     *,
+    operation: str = "ingest",
     use_llm: bool = True,
     provider_name: str | None = None,
     model: str | None = None,
@@ -258,7 +259,7 @@ def ingest_source(
 
     metadata = OperationMetadata(
         timestamp=timestamp,
-        operation="ingest",
+        operation=operation,
         schema_domain=schema_bundle.config.domain,
         prompt_versions=schema_bundle.config.prompt_versions,
         llm_requested=use_llm,
@@ -272,14 +273,14 @@ def ingest_source(
     existing_log = (wiki_root / "log.md").read_text(encoding="utf-8").rstrip()
     log_after = render_log_with_entry(
         existing=existing_log,
-        operation="ingest",
+        operation=operation,
         title=analysis.title,
         detail_lines=detail_lines,
         date_stamp=date_stamp,
     )
 
     plan = ChangePlan(
-        operation="ingest",
+        operation=operation,
         title=analysis.title,
         metadata=metadata,
         detail_lines=detail_lines,
