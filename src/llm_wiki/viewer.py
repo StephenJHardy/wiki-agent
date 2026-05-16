@@ -14,6 +14,8 @@ from .config import DEFAULT_VAULT_DIRNAME, resolve_state_root, resolve_wiki_root
 from .filesystem import slugify
 from .models import WikiPage
 from .retrieval import retrieve_pages
+from .review import preview_change_plan
+from .reviews import REVIEW_STATES, list_reviews, load_review, review_to_change_plan
 from .wiki import collect_wiki_pages, extract_wiki_links, page_summary
 
 INLINE_MATH_PATTERN = re.compile(r"(?<!\\)\$(.+?)(?<!\\)\$")
@@ -152,6 +154,18 @@ def create_viewer_app(*, base_path: Path, vault_name: str = DEFAULT_VAULT_DIRNAM
         content = render_operations_content(state_root)
         return viewer_shell(content=content, pages=pages)
 
+    @rt("/reviews")
+    def reviews():
+        pages = load_viewer_pages(wiki_root)
+        content = render_reviews_content(state_root)
+        return viewer_shell(content=content, pages=pages)
+
+    @rt("/reviews/{review_id}")
+    def review_detail(review_id: str):
+        pages = load_viewer_pages(wiki_root)
+        content = render_review_detail_content(state_root=state_root, repo_root=base_path, review_id=review_id)
+        return viewer_shell(content=content, pages=pages)
+
     return app
 
 
@@ -202,6 +216,8 @@ def search_form(query: str):
         A("Issues", href="/issues"),
         " ",
         A("Operations", href="/operations"),
+        " ",
+        A("Reviews", href="/reviews"),
         Form(
             Input(type="search", name="q", value=query, placeholder="Search wiki pages, aliases, headings, maths topics...", autofocus=True),
             Button("Search", type="submit"),
@@ -345,6 +361,60 @@ def render_operations_content(state_root: Path):
     )
 
 
+def render_reviews_content(state_root: Path):
+    grouped = read_review_entries(state_root)
+    return Div(
+        Header(
+            H1("Review Queue"),
+            P("Saved change plans persisted under `vault/state/reviews/` for inspection before apply or rejection."),
+            cls="hero",
+        ),
+        H2("Pending", cls="section-title"),
+        Div(*[render_review_card(review) for review in grouped["pending"]], cls="result-list") if grouped["pending"] else P("No pending reviews."),
+        H2("Applied", cls="section-title"),
+        Div(*[render_review_card(review) for review in grouped["applied"]], cls="result-list") if grouped["applied"] else P("No applied reviews."),
+        H2("Rejected", cls="section-title"),
+        Div(*[render_review_card(review) for review in grouped["rejected"]], cls="result-list") if grouped["rejected"] else P("No rejected reviews."),
+        cls="viewer-panel",
+    )
+
+
+def render_review_detail_content(*, state_root: Path, repo_root: Path, review_id: str):
+    try:
+        review = load_review(state_root=state_root, review_id=review_id)
+    except FileNotFoundError:
+        return Div(
+            Header(
+                H1("Review Not Found"),
+                P(f"No review with ID `{review_id}` exists in the review queue."),
+                cls="hero",
+            ),
+            cls="viewer-panel",
+        )
+
+    plan = review_to_change_plan(review, repo_root=repo_root)
+    preview = preview_change_plan(plan, repo_root=repo_root)
+    rendered_preview = md.markdown(
+        preview,
+        extensions=["fenced_code", "tables", "sane_lists", "nl2br"],
+        output_format="html5",
+    )
+    return Div(
+        Header(
+            H1(review.payload.title),
+            P(f"{review.payload.operation} • {review.payload.status} • {review.payload.created_at}"),
+            Div(
+                Span(f"{len(review.payload.changes)} file changes", cls="chip"),
+                Span(review.payload.review_id, cls="chip"),
+                cls="chip-row",
+            ),
+            cls="hero",
+        ),
+        Article(NotStr(rendered_preview), cls="page-content"),
+        cls="viewer-panel",
+    )
+
+
 def render_feature_card(item: ViewerPage):
     summary = item.page.frontmatter.summary or page_summary(item.page.body)
     return Section(
@@ -396,6 +466,16 @@ def render_operation_card(entry: dict[str, object]):
         P(f"Model: {model}"),
         P(f"Schema: {metadata.get('schema_domain', 'unknown')} • Raw fallback: {metadata.get('raw_source_fallback', False)}", cls="result-meta"),
         P(json.dumps(details, sort_keys=True)[:320], cls="result-meta"),
+        cls="result-card",
+    )
+
+
+def render_review_card(entry: dict[str, object]):
+    return Section(
+        H2(A(str(entry["title"]), href=f"/reviews/{entry['review_id']}")),
+        P(f"{entry['operation']} • {entry['status']} • {entry['created_at']}"),
+        P(f"Files changed: {len(entry.get('changes', []))}", cls="result-meta"),
+        P(str(entry["review_id"]), cls="result-meta"),
         cls="result-card",
     )
 
@@ -489,6 +569,16 @@ def read_operation_entries(state_root: Path) -> list[dict[str, object]]:
     for path in sorted(operations_root.glob("*.json"), reverse=True)[:12]:
         entries.append(json.loads(path.read_text(encoding="utf-8")))
     return entries
+
+
+def read_review_entries(state_root: Path) -> dict[str, list[dict[str, object]]]:
+    grouped: dict[str, list[dict[str, object]]] = {status: [] for status in REVIEW_STATES}
+    for status in REVIEW_STATES:
+        grouped[status] = [
+            review.payload.model_dump()
+            for review in list_reviews(state_root=state_root, status=status)
+        ]
+    return grouped
 
 
 def render_markdown_with_math(text: str, *, title_index: dict[str, str]) -> str:

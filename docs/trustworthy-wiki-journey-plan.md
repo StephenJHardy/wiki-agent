@@ -233,6 +233,8 @@ Useful derived questions:
 
 Goal: make trust signals visible without requiring terminal inspection.
 
+Status: review queue viewer routes are implemented. Source, timeline, and page provenance routes remain.
+
 Add viewer routes:
 
 ```text
@@ -242,6 +244,11 @@ Add viewer routes:
 /sources/{source-id}
 /page/{slug}/provenance
 ```
+
+Implemented viewer routes:
+
+- `/reviews`
+- `/reviews/{id}`
 
 Viewer capabilities:
 

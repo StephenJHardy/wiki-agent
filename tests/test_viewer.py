@@ -116,3 +116,27 @@ def test_viewer_exposes_issues_and_operations_routes(tmp_path: Path) -> None:
     assert "Maintenance Issues" in issues_response.text
     assert operations_response.status_code == 200
     assert "Operation Artifacts" in operations_response.text
+
+
+def test_viewer_exposes_review_queue_and_review_detail(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+    source_path = tmp_path / "vault/raw/sources/review.md"
+    source_path.write_text("# Review Source\n\nOpenAI studies review queues.", encoding="utf-8")
+    assert runner.invoke(app, ["ingest", "review.md", "--path", str(tmp_path), "--no-llm", "--review"]).exit_code == 0
+
+    review_paths = sorted((tmp_path / "vault/state/reviews/pending").glob("*.json"))
+    assert len(review_paths) == 1
+    review_id = review_paths[0].stem
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+    list_response = client.get("/reviews")
+    detail_response = client.get(f"/reviews/{review_id}")
+
+    assert list_response.status_code == 200
+    assert "Review Queue" in list_response.text
+    assert review_id in list_response.text
+    assert "Review Source" in list_response.text
+
+    assert detail_response.status_code == 200
+    assert "Change Plan" in detail_response.text
+    assert "vault/wiki/sources/review.md" in detail_response.text
