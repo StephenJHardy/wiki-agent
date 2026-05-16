@@ -94,6 +94,8 @@ This should use the same change planning path as ingest.
 
 Goal: make high-impact changes reviewable before they mutate the wiki.
 
+Status: implemented for saved `ChangePlan` review, including pending/applied/rejected state and CLI apply/reject commands. Lint-generated fixes remain part of Step 4.
+
 Dry-run currently previews a `ChangePlan`, but it is not a durable workflow. Add persisted review plans under state:
 
 ```text
@@ -112,6 +114,14 @@ llm-wiki review apply <review-id>
 llm-wiki review reject <review-id>
 ```
 
+Implemented command behavior:
+
+- `review list` lists saved review plans by status
+- `review show <review-id>` renders the stored change plan and diffs
+- `review apply <review-id>` applies a pending plan and moves it to `applied/`
+- `review reject <review-id>` moves a pending plan to `rejected/`
+- applying a review checks that current file contents still match the stored `before` content
+
 Ingest, query filing, refresh, and lint fixes should be able to emit pending plans:
 
 ```bash
@@ -119,6 +129,14 @@ llm-wiki ingest paper.pdf --review
 llm-wiki query "question" --file --review
 llm-wiki lint --propose-fixes --review
 ```
+
+Implemented review-producing commands:
+
+- `ingest --review`
+- `query --file --review`
+- `refresh-source <source-id> --review`
+- `refresh-source --all --review`
+- `rebuild-index --review`
 
 Implementation notes:
 

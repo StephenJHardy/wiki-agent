@@ -9,6 +9,7 @@ from .commands.lint import lint_command
 from .commands.query import query_command
 from .commands.rebuild_index import rebuild_index_command
 from .commands.refresh_source import refresh_source_command
+from .commands.review import review_app
 from .commands.view import view_command
 
 app = typer.Typer(
@@ -25,6 +26,7 @@ app.command("rebuild-index")(rebuild_index_command)
 app.command("query")(query_command)
 app.command("lint")(lint_command)
 app.command("view")(view_command)
+app.add_typer(review_app, name="review")
 
 
 def main() -> None:

@@ -5,9 +5,10 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from ..config import DEFAULT_VAULT_DIRNAME
+from ..config import DEFAULT_VAULT_DIRNAME, resolve_state_root
 from ..maintenance import refresh_sources
 from ..review import preview_change_plan
+from ..reviews import save_pending_review
 
 
 def refresh_source_command(
@@ -53,6 +54,11 @@ def refresh_source_command(
         "--dry-run",
         help="Preview refresh changes without writing wiki files.",
     ),
+    review: bool = typer.Option(
+        False,
+        "--review",
+        help="Save refresh changes for later review instead of applying them.",
+    ),
     max_file_changes: int | None = typer.Option(
         20,
         "--max-file-changes",
@@ -72,7 +78,7 @@ def refresh_source_command(
             use_llm=use_llm,
             provider_name=provider,
             model=model,
-            dry_run=dry_run,
+            dry_run=dry_run or review,
             max_file_changes=max_file_changes,
         )
     except (FileNotFoundError, ValueError) as exc:
@@ -88,6 +94,13 @@ def refresh_source_command(
             f"{len(refresh_result.change_plan.changed_files())} planned file change(s)."
         )
         console.print(preview_change_plan(refresh_result.change_plan, repo_root=path), markup=False)
+        if review:
+            saved_review = save_pending_review(
+                state_root=resolve_state_root(path, vault_name),
+                plan=refresh_result.change_plan,
+                repo_root=path,
+            )
+            console.print(f"Saved pending review `{saved_review.review_id}`.")
 
-    if result.dry_run:
+    if result.dry_run and not review:
         console.print("Dry run only. No wiki files were written.")

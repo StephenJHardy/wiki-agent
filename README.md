@@ -71,6 +71,7 @@ vault/
     extracted/
     issues/
     operations/
+    reviews/
   schema/
     config.yaml
     prompts/
@@ -86,6 +87,7 @@ Current commands:
 - `uv run llm-wiki ingest-dir <DIRECTORY>`
 - `uv run llm-wiki refresh-source <SOURCE_ID>`
 - `uv run llm-wiki rebuild-index`
+- `uv run llm-wiki review list`
 - `uv run llm-wiki query "<QUESTION>"`
 - `uv run llm-wiki lint`
 - `uv run llm-wiki view`
@@ -145,9 +147,21 @@ If a supported LLM is configured in `.env`, ingest will use it automatically. Di
 Write-producing commands also support:
 
 - `--dry-run` to preview a structured file-change plan without writing
+- `--review` to save a pending change plan under `vault/state/reviews/pending/`
 - `--max-file-changes` to guard against unexpectedly large edits
 
 Each run now saves an operation artifact under `vault/state/operations/` with provider/model metadata, prompt versions, and retrieval traces.
+
+Review saved change plans:
+
+```bash
+uv run llm-wiki review list --path .
+uv run llm-wiki review show <review-id> --path .
+uv run llm-wiki review apply <review-id> --path .
+uv run llm-wiki review reject <review-id> --path .
+```
+
+Applying a review checks that files still match the saved `before` content before writing, so stale review plans fail instead of overwriting newer edits.
 
 Example query flow:
 

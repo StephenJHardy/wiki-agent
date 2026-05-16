@@ -26,6 +26,9 @@ VAULT_DIRECTORIES = (
     "state/extracted",
     "state/issues",
     "state/operations",
+    "state/reviews/pending",
+    "state/reviews/applied",
+    "state/reviews/rejected",
 )
 
 

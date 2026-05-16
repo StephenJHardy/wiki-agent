@@ -5,9 +5,10 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from ..config import DEFAULT_VAULT_DIRNAME
+from ..config import DEFAULT_VAULT_DIRNAME, resolve_state_root
 from ..query import run_query
 from ..review import preview_change_plan
+from ..reviews import save_pending_review
 
 
 def query_command(
@@ -55,6 +56,11 @@ def query_command(
         "--dry-run",
         help="Preview filed analysis changes without writing them.",
     ),
+    review: bool = typer.Option(
+        False,
+        "--review",
+        help="Save filed analysis changes for later review instead of applying them.",
+    ),
     max_file_changes: int | None = typer.Option(
         10,
         "--max-file-changes",
@@ -63,6 +69,9 @@ def query_command(
     ),
 ) -> None:
     """Answer a question from the maintained wiki."""
+
+    if review and not file_answer:
+        raise typer.BadParameter("`--review` requires `--file` so there is a change plan to save.")
 
     console = Console()
     result = run_query(
@@ -74,13 +83,20 @@ def query_command(
         use_llm=use_llm,
         provider_name=provider,
         model=model,
-        dry_run=dry_run,
+        dry_run=dry_run or review,
         max_file_changes=max_file_changes,
     )
     console.print(result.answer_markdown, markup=False)
     if result.change_plan.changed_files():
         console.print(preview_change_plan(result.change_plan, repo_root=path), markup=False)
-    if result.written_page is not None and not result.dry_run:
+    if review and result.change_plan.changed_files():
+        saved_review = save_pending_review(
+            state_root=resolve_state_root(path, vault_name),
+            plan=result.change_plan,
+            repo_root=path,
+        )
+        console.print(f"Saved pending review `{saved_review.review_id}`.")
+    elif result.written_page is not None and not result.dry_run:
         console.print(f"Filed analysis at [bold]{result.written_page}[/bold]")
     elif result.written_page is not None and result.dry_run:
         console.print("Dry run only. No files were written.")

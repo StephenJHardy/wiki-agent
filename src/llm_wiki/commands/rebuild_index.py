@@ -5,9 +5,10 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
-from ..config import DEFAULT_VAULT_DIRNAME
+from ..config import DEFAULT_VAULT_DIRNAME, resolve_state_root
 from ..maintenance import rebuild_wiki_index
 from ..review import preview_change_plan
+from ..reviews import save_pending_review
 
 
 def rebuild_index_command(
@@ -29,6 +30,11 @@ def rebuild_index_command(
         "--dry-run",
         help="Preview index/log changes without writing wiki files.",
     ),
+    review: bool = typer.Option(
+        False,
+        "--review",
+        help="Save index/log changes for later review instead of applying them.",
+    ),
     max_file_changes: int | None = typer.Option(
         2,
         "--max-file-changes",
@@ -42,10 +48,17 @@ def rebuild_index_command(
     result = rebuild_wiki_index(
         base_path=path,
         vault_name=vault_name,
-        dry_run=dry_run,
+        dry_run=dry_run or review,
         max_file_changes=max_file_changes,
     )
     console.print(preview_change_plan(result.change_plan, repo_root=path), markup=False)
-    if result.dry_run:
+    if review:
+        saved_review = save_pending_review(
+            state_root=resolve_state_root(path, vault_name),
+            plan=result.change_plan,
+            repo_root=path,
+        )
+        console.print(f"Saved pending review `{saved_review.review_id}`.")
+    elif result.dry_run:
         console.print("Dry run only. No wiki files were written.")
     console.print(f"Saved operation artifact at [bold]{result.artifact_path}[/bold]")
