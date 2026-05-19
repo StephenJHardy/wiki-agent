@@ -89,6 +89,10 @@ def sources_state_template() -> dict[str, object]:
     return {"sources": []}
 
 
+def claims_state_template() -> dict[str, object]:
+    return {"claims": []}
+
+
 def schema_config_template(domain: str = "general") -> str:
     payloads = {
         "general": dedent(

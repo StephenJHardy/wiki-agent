@@ -194,6 +194,8 @@ Rules:
 
 Goal: move from topic-level timelines to explicit knowledge provenance.
 
+Status: implemented as state-backed claim records generated during ingest and refresh.
+
 The current claim timeline says a source discusses or mentions a page. That is useful scaffolding, but it is not yet true claim tracking.
 
 Introduce a structured claim model:
@@ -221,6 +223,14 @@ vault/wiki/entities/<page>.md
 
 Start with state storage and render summaries into pages. This keeps claim tracking machine-readable without making markdown frontmatter too noisy.
 
+Implemented behavior:
+
+- `vault/state/claims.json` is scaffolded during `init`
+- ingest and refresh update claim records through the normal `ChangePlan` path
+- claim records include source ID, source title, publication date, wiki observation time, confidence, and related pages
+- refreshing a source replaces that source's previous claims so stale extracted claims do not accumulate
+- query operation artifacts record the claim IDs used by the answer path
+
 Useful derived questions:
 
 - which source first introduced this claim to the wiki?
@@ -233,7 +243,7 @@ Useful derived questions:
 
 Goal: make trust signals visible without requiring terminal inspection.
 
-Status: review queue viewer routes are implemented. Source, timeline, and page provenance routes remain.
+Status: implemented for reviews, source detail, claim timeline, and page-level provenance.
 
 Add viewer routes:
 
@@ -249,6 +259,9 @@ Implemented viewer routes:
 
 - `/reviews`
 - `/reviews/{id}`
+- `/timeline`
+- `/sources/{source-id}`
+- `/page/{slug}/provenance`
 
 Viewer capabilities:
 
@@ -265,15 +278,17 @@ The viewer should remain a reflection of markdown and state files. It should not
 
 Goal: make provenance available to answers.
 
+Status: implemented for provenance-aware query output and existing retrieval benchmark coverage.
+
 Once claim provenance exists, query should use it.
 
 Near-term improvements:
 
-- include source publication dates in query answers when relevant
-- distinguish "published in source" from "ingested into wiki"
-- prefer newer or more authoritative sources when the question is temporal
-- expose retrieval traces in filed analysis pages
-- benchmark retrieval against fixed query cases
+- include source publication dates in query answers when relevant: implemented through the `Provenance` section
+- distinguish "published in source" from "ingested into wiki": implemented in claim provenance lines
+- prefer newer or more authoritative sources when the question is temporal: partially supported by sorted provenance records; richer authority ranking remains future retrieval work
+- expose retrieval traces in filed analysis pages: implemented through the `Retrieved Pages` section with scores and reasons
+- benchmark retrieval against fixed query cases: implemented in `tests/fixtures/queries/retrieval_cases.json`
 
 Example answer behavior:
 

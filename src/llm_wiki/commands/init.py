@@ -10,6 +10,7 @@ from ..filesystem import ensure_directory, write_json, write_text
 from ..templates import (
     SUPPORTED_DOMAINS,
     agents_template,
+    claims_state_template,
     index_template,
     log_template,
     schema_config_template,
@@ -51,6 +52,7 @@ def init_command(
     write_text(vault_root / "wiki/index.md", index_template())
     write_text(vault_root / "wiki/log.md", log_template())
     write_json(vault_root / "state/sources.json", sources_state_template())
+    write_json(vault_root / "state/claims.json", claims_state_template())
     write_text(vault_root / "schema/config.yaml", schema_config_template(domain))
     schema_files = schema_prompt_templates(domain)
     for filename, contents in schema_files.items():

@@ -140,3 +140,45 @@ def test_viewer_exposes_review_queue_and_review_detail(tmp_path: Path) -> None:
     assert detail_response.status_code == 200
     assert "Change Plan" in detail_response.text
     assert "vault/wiki/sources/review.md" in detail_response.text
+
+
+def test_viewer_exposes_claim_timeline_sources_and_page_provenance(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+    source_path = tmp_path / "vault/raw/sources/provenance.md"
+    source_path.write_text(
+        "\n".join(
+            [
+                "# Provenance Source",
+                "",
+                "Authors: Ada Lovelace",
+                "Published: 2024-05-17",
+                "",
+                "OpenAI studies provenance for durable wiki systems.",
+                "",
+                "## Provenance",
+                "",
+                "- Claim provenance records who introduced an idea and when.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["ingest", "provenance.md", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+
+    timeline_response = client.get("/timeline")
+    source_response = client.get("/sources/provenance")
+    page_response = client.get("/page/provenance/provenance")
+
+    assert timeline_response.status_code == 200
+    assert "Claim Timeline" in timeline_response.text
+    assert "Claim provenance records who introduced an idea and when" in timeline_response.text
+
+    assert source_response.status_code == 200
+    assert "Provenance Source" in source_response.text
+    assert "Published: 2024-05-17" in source_response.text
+
+    assert page_response.status_code == 200
+    assert "Provenance Provenance" in page_response.text
+    assert "Source Lineage" in page_response.text
+    assert "provenance" in page_response.text

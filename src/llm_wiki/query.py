@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .claims import claims_for_pages, load_claim_store
 from .config import DEFAULT_VAULT_DIRNAME, resolve_state_root, resolve_vault_root, resolve_wiki_root
 from .filesystem import read_json
 from .llm import get_llm_provider
@@ -12,7 +13,7 @@ from .llm.base import LLMError
 from .llm.config import load_llm_settings
 from .llm.prompts import build_query_prompt, build_system_instruction, load_prompt_context
 from .llm.schemas import StructuredQuerySynthesis
-from .models import SourceRegistry
+from .models import ClaimRecord, SourceRegistry
 from .planning import ChangePlan, FileChange, OperationArtifact, OperationMetadata, apply_change_plan, save_operation_artifact
 from .retrieval import RetrievalMatch, retrieve_pages
 from .wiki import collect_wiki_pages, page_summary, render_analysis_page, render_index, render_log_with_entry
@@ -87,6 +88,7 @@ def run_query(
         retrieval_matches[:3],
         raw_matches=raw_matches,
         base_path=base_path,
+        state_root=state_root,
         index_text=index_text,
         vault_name=vault_name,
         use_llm=use_llm,
@@ -178,6 +180,10 @@ def run_query(
             details={
                 "question": question,
                 "matched_titles": [page.frontmatter.title for page in selected_pages],
+                "claim_ids": [
+                    claim.claim_id
+                    for claim in claims_for_pages(load_claim_store(state_root), selected_pages)
+                ],
                 "raw_source_matches": [match.__dict__ for match in raw_matches],
             },
             change_summary={
@@ -206,6 +212,7 @@ def render_query_answer(
     *,
     raw_matches: list[RawSourceMatch],
     base_path: Path,
+    state_root: Path,
     index_text: str,
     vault_name: str,
     use_llm: bool,
@@ -232,6 +239,7 @@ def render_query_answer(
         )
 
     pages = [match.page for match in matches]
+    provenance_claims = claims_for_pages(load_claim_store(state_root), pages)
     llm_synthesis = synthesize_query_with_llm(
         question=question,
         pages=pages,
@@ -259,6 +267,9 @@ def render_query_answer(
             lines.extend([f"- {item}" for item in llm_synthesis.follow_up_questions])
         lines.extend(["", "## Citations"])
         lines.extend([f"- [[{page.frontmatter.title}]]" for page in pages])
+        if provenance_claims:
+            lines.extend(["", "## Provenance"])
+            lines.extend(render_provenance_lines(provenance_claims))
         if raw_matches:
             lines.extend(["", "## Raw Source Fallback"])
             lines.extend(render_raw_source_lines(raw_matches))
@@ -291,6 +302,9 @@ def render_query_answer(
     if raw_matches:
         lines.extend(["", "## Raw Source Fallback"])
         lines.extend(render_raw_source_lines(raw_matches))
+    if provenance_claims:
+        lines.extend(["", "## Provenance"])
+        lines.extend(render_provenance_lines(provenance_claims))
     if matches:
         lines.extend(["", "## Retrieved Pages"])
         lines.extend(render_retrieval_lines(matches))
@@ -346,6 +360,19 @@ def render_raw_source_lines(matches: list[RawSourceMatch]) -> list[str]:
         f"- `{match.path}` (score: {match.score:.1f}) - {match.snippet}"
         for match in matches
     ]
+
+
+def render_provenance_lines(claims: list[ClaimRecord]) -> list[str]:
+    lines: list[str] = []
+    for claim in claims[:8]:
+        date_label = claim.published_at or claim.observed_at
+        date_kind = "published" if claim.published_at else "observed"
+        lines.append(
+            f"- {claim.text} "
+            f"[source: {claim.introduced_by_source_id}; {date_kind}: {date_label}; "
+            f"observed: {claim.observed_at}]"
+        )
+    return lines
 
 
 def default_analysis_title(question: str) -> str:

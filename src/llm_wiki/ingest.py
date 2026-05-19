@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
+from .claims import claims_state_path, load_claim_store, upsert_claims_for_source
 from .config import DEFAULT_VAULT_DIRNAME, WIKI_SECTION_DIRECTORY, resolve_state_root, resolve_wiki_root
 from .filesystem import read_json, render_json, slugify
 from .llm import get_llm_provider
@@ -200,6 +201,12 @@ def ingest_source(
         arxiv_id=analysis.arxiv_id,
     )
     registry = upsert_source_record(registry, record)
+    claim_store = upsert_claims_for_source(
+        store=load_claim_store(state_root),
+        record=record,
+        analysis=analysis,
+        observed_at=timestamp,
+    )
 
     planned_pages: list[tuple[Path, str]] = []
     source_page_path, source_page_content = build_source_page(
@@ -256,6 +263,10 @@ def ingest_source(
         detail_lines.extend([f"  - {caveat}" for caveat in analysis.caveats])
     else:
         detail_lines.append("- Caveats detected: none")
+    detail_lines.append(
+        "- Claim records: "
+        + str(sum(1 for claim in claim_store.claims if claim.introduced_by_source_id == record.source_id))
+    )
 
     metadata = OperationMetadata(
         timestamp=timestamp,
@@ -287,6 +298,7 @@ def ingest_source(
         changes=build_changes(
             [
                 (registry_path, render_json(registry.model_dump())),
+                (claims_state_path(state_root), render_json(claim_store.model_dump())),
                 *planned_pages,
                 (wiki_root / "index.md", index_after),
                 (wiki_root / "log.md", log_after),
@@ -310,6 +322,11 @@ def ingest_source(
                 "venue": record.venue,
                 "doi": record.doi,
                 "arxiv_id": record.arxiv_id,
+                "claim_ids": [
+                    claim.claim_id
+                    for claim in claim_store.claims
+                    if claim.introduced_by_source_id == record.source_id
+                ],
                 "updated_pages": [path.relative_to(wiki_root).as_posix() for path in updated_pages],
             },
             change_summary={

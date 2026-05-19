@@ -52,6 +52,13 @@ def test_ingest_creates_source_pages_and_registry(tmp_path: Path) -> None:
     assert registry["sources"][0]["published_at_precision"] == "day"
     assert registry["sources"][0]["doi"] == "10.1234/example.doi"
 
+    claims = json.loads((tmp_path / "vault/state/claims.json").read_text(encoding="utf-8"))
+    assert len(claims["claims"]) == 2
+    assert {claim["introduced_by_source_id"] for claim in claims["claims"]} == {"attention"}
+    assert {claim["published_at"] for claim in claims["claims"]} == {"2024-05-17"}
+    retrieval_claim = next(claim for claim in claims["claims"] if "Retrieval can improve grounded answers" in claim["text"])
+    assert "Retrieval" in retrieval_claim["related_pages"]
+
     source_page = (tmp_path / "vault/wiki/sources/attention.md").read_text(encoding="utf-8")
     assert "type: source" in source_page
     assert "authors:" in source_page

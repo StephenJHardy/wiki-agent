@@ -46,12 +46,14 @@ def test_query_answers_from_wiki_and_can_file_analysis(tmp_path: Path) -> None:
     assert result.exit_code == 0
     assert "[[Retrieval]]" in result.stdout
     assert "[[Retrieval Systems]]" in result.stdout
+    assert "## Provenance" in result.stdout
 
     analysis_path = tmp_path / "vault/wiki/analyses/retrieval-brief.md"
     assert analysis_path.exists()
     analysis_text = analysis_path.read_text(encoding="utf-8")
     assert "type: analysis" in analysis_text
     assert "Question: When does retrieval help?" in analysis_text
+    assert "[source: retrieval;" in analysis_text
 
     index_text = (tmp_path / "vault/wiki/index.md").read_text(encoding="utf-8")
     assert "[[Retrieval Brief]]" in index_text

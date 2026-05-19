@@ -10,9 +10,10 @@ from urllib.parse import quote
 import markdown as md
 from fasthtml.common import A, Article, Button, Div, Form, H1, H2, Header, Input, Li, Main, Nav, NotStr, P, Script, Section, Small, Span, Style, Titled, Ul, fast_app
 
+from .claims import claims_for_page_title, load_claim_store
 from .config import DEFAULT_VAULT_DIRNAME, resolve_state_root, resolve_wiki_root
-from .filesystem import slugify
-from .models import WikiPage
+from .filesystem import read_json, slugify
+from .models import ClaimRecord, SourceRegistry, WikiPage
 from .retrieval import retrieve_pages
 from .review import preview_change_plan
 from .reviews import REVIEW_STATES, list_reviews, load_review, review_to_change_plan
@@ -166,6 +167,24 @@ def create_viewer_app(*, base_path: Path, vault_name: str = DEFAULT_VAULT_DIRNAM
         content = render_review_detail_content(state_root=state_root, repo_root=base_path, review_id=review_id)
         return viewer_shell(content=content, pages=pages)
 
+    @rt("/timeline")
+    def timeline():
+        pages = load_viewer_pages(wiki_root)
+        content = render_timeline_content(state_root)
+        return viewer_shell(content=content, pages=pages)
+
+    @rt("/sources/{source_id}")
+    def source_detail(source_id: str):
+        pages = load_viewer_pages(wiki_root)
+        content = render_source_detail_content(state_root=state_root, source_id=source_id)
+        return viewer_shell(content=content, pages=pages)
+
+    @rt("/page/{slug}/provenance")
+    def page_provenance(slug: str):
+        pages = load_viewer_pages(wiki_root)
+        content = render_page_provenance_content(state_root=state_root, pages=pages, slug=slug)
+        return viewer_shell(content=content, pages=pages)
+
     return app
 
 
@@ -218,6 +237,8 @@ def search_form(query: str):
         A("Operations", href="/operations"),
         " ",
         A("Reviews", href="/reviews"),
+        " ",
+        A("Timeline", href="/timeline"),
         Form(
             Input(type="search", name="q", value=query, placeholder="Search wiki pages, aliases, headings, maths topics...", autofocus=True),
             Button("Search", type="submit"),
@@ -294,6 +315,11 @@ def render_page_content(*, wiki_root: Path, pages: list[ViewerPage], current: Vi
             Article(NotStr(rendered_html), cls="page-content"),
             Div(
                 render_meta_card(current),
+                Section(
+                    H2("Provenance"),
+                    P(A("View claim provenance", href=f"/page/{current.slug}/provenance")),
+                    cls="meta-card",
+                ),
                 render_backlinks_card(backlinks),
                 cls="page-meta",
             ),
@@ -415,6 +441,107 @@ def render_review_detail_content(*, state_root: Path, repo_root: Path, review_id
     )
 
 
+def render_timeline_content(state_root: Path):
+    store = load_claim_store(state_root)
+    claims = sorted(store.claims, key=lambda claim: ((claim.published_at or claim.observed_at), claim.source_title.lower(), claim.claim_id))
+    return Div(
+        Header(
+            H1("Claim Timeline"),
+            P("Claim records from `vault/state/claims.json`, ordered by source publication date when available and wiki observation time otherwise."),
+            Div(
+                Span(f"{len(claims)} claims", cls="chip"),
+                Span(f"{len({claim.introduced_by_source_id for claim in claims})} sources", cls="chip"),
+                cls="chip-row",
+            ),
+            cls="hero",
+        ),
+        Div(*[render_claim_card(claim) for claim in claims], cls="result-list") if claims else P("No claim records yet."),
+        cls="viewer-panel",
+    )
+
+
+def render_source_detail_content(*, state_root: Path, source_id: str):
+    registry = read_source_registry(state_root)
+    record = next((source for source in registry.sources if source.source_id == source_id), None)
+    if record is None:
+        return Div(
+            Header(
+                H1("Source Not Found"),
+                P(f"No source record with ID `{source_id}` exists in `vault/state/sources.json`."),
+                cls="hero",
+            ),
+            cls="viewer-panel",
+        )
+
+    claims = [claim for claim in load_claim_store(state_root).claims if claim.introduced_by_source_id == source_id]
+    return Div(
+        Header(
+            H1(record.title),
+            P(f"Source ID: {record.source_id}"),
+            Div(
+                Span(record.file_type, cls="chip"),
+                Span(f"{len(claims)} claims", cls="chip"),
+                Span(record.published_at or "undated", cls="chip"),
+                cls="chip-row",
+            ),
+            cls="hero",
+        ),
+        Section(
+            H2("Source Metadata"),
+            Ul(
+                Li(f"Path: {record.path}"),
+                Li(f"Extracted path: {record.extracted_path or 'none'}"),
+                Li(f"Original URL: {record.original_url or 'none'}"),
+                Li(f"Authors: {', '.join(record.authors) or 'none'}"),
+                Li(f"Published: {record.published_at or 'unknown'}"),
+                Li(f"Ingested: {record.ingested_at}"),
+                Li(f"Updated: {record.updated_at}"),
+                cls="meta-list",
+            ),
+            cls="meta-card",
+        ),
+        H2("Claims", cls="section-title"),
+        Div(*[render_claim_card(claim) for claim in claims], cls="result-list") if claims else P("No claims recorded for this source."),
+        cls="viewer-panel",
+    )
+
+
+def render_page_provenance_content(*, state_root: Path, pages: list[ViewerPage], slug: str):
+    page_map = {item.slug: item for item in pages}
+    current = page_map.get(slug)
+    if current is None:
+        return render_not_found(slug)
+
+    store = load_claim_store(state_root)
+    claims = claims_for_page_title(store, current.page.frontmatter.title, current.page.frontmatter.source_ids)
+    return Div(
+        Header(
+            H1(f"{current.page.frontmatter.title} Provenance"),
+            P("Source lineage and claim records connected to this page."),
+            Div(
+                Span(f"{len(current.page.frontmatter.source_ids)} source ids", cls="chip"),
+                Span(f"{len(claims)} claims", cls="chip"),
+                cls="chip-row",
+            ),
+            cls="hero",
+        ),
+        Section(
+            H2("Source Lineage"),
+            Ul(
+                *[
+                    Li(A(source_id, href=f"/sources/{quote(source_id)}"))
+                    for source_id in current.page.frontmatter.source_ids
+                ],
+                cls="meta-list",
+            ) if current.page.frontmatter.source_ids else P("No source IDs recorded on this page."),
+            cls="meta-card",
+        ),
+        H2("Related Claims", cls="section-title"),
+        Div(*[render_claim_card(claim) for claim in claims], cls="result-list") if claims else P("No claim records connected to this page."),
+        cls="viewer-panel",
+    )
+
+
 def render_feature_card(item: ViewerPage):
     summary = item.page.frontmatter.summary or page_summary(item.page.body)
     return Section(
@@ -476,6 +603,28 @@ def render_review_card(entry: dict[str, object]):
         P(f"{entry['operation']} • {entry['status']} • {entry['created_at']}"),
         P(f"Files changed: {len(entry.get('changes', []))}", cls="result-meta"),
         P(str(entry["review_id"]), cls="result-meta"),
+        cls="result-card",
+    )
+
+
+def render_claim_card(claim: ClaimRecord):
+    date_label = claim.published_at or claim.observed_at
+    date_kind = "published" if claim.published_at else "observed"
+    related = ", ".join(claim.related_pages) or "none"
+    flags: list[str] = []
+    if not claim.reinforced_by_source_ids:
+        flags.append("thinly sourced")
+    if claim.contradicted_by_source_ids:
+        flags.append("contradicted")
+    return Section(
+        H2(claim.text),
+        P(
+            f"{date_label} ({date_kind}) • "
+            f"{claim.source_title} • confidence {claim.confidence:.2f}"
+        ),
+        P(f"Source: {claim.introduced_by_source_id}", cls="result-meta"),
+        P(f"Related pages: {related}", cls="result-meta"),
+        P(f"Signals: {', '.join(flags) if flags else 'reinforced'}", cls="result-meta"),
         cls="result-card",
     )
 
@@ -579,6 +728,13 @@ def read_review_entries(state_root: Path) -> dict[str, list[dict[str, object]]]:
             for review in list_reviews(state_root=state_root, status=status)
         ]
     return grouped
+
+
+def read_source_registry(state_root: Path) -> SourceRegistry:
+    path = state_root / "sources.json"
+    if not path.exists():
+        return SourceRegistry()
+    return SourceRegistry.model_validate(read_json(path))
 
 
 def render_markdown_with_math(text: str, *, title_index: dict[str, str]) -> str:

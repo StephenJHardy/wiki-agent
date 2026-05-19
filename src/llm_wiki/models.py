@@ -60,6 +60,24 @@ class SourceRegistry(BaseModel):
     sources: list[SourceRecord] = Field(default_factory=list)
 
 
+class ClaimRecord(BaseModel):
+    claim_id: str
+    text: str
+    introduced_by_source_id: str
+    source_title: str
+    published_at: str | None = None
+    published_at_precision: str | None = None
+    observed_at: str
+    confidence: float = 0.6
+    related_pages: list[str] = Field(default_factory=list)
+    reinforced_by_source_ids: list[str] = Field(default_factory=list)
+    contradicted_by_source_ids: list[str] = Field(default_factory=list)
+
+
+class ClaimStore(BaseModel):
+    claims: list[ClaimRecord] = Field(default_factory=list)
+
+
 class SourceAnalysis(BaseModel):
     title: str
     summary: str
