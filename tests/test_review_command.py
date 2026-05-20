@@ -33,7 +33,9 @@ def test_ingest_review_can_be_listed_shown_and_applied(tmp_path: Path) -> None:
     payload = json.loads((tmp_path / f"vault/state/reviews/pending/{review_id}.json").read_text(encoding="utf-8"))
     assert payload["operation"] == "ingest"
     assert payload["status"] == "pending"
+    assert any(change["path"] == "vault/state/claims.json" for change in payload["changes"])
     assert any(change["path"] == "vault/wiki/sources/reviewed.md" for change in payload["changes"])
+    assert json.loads((tmp_path / "vault/state/claims.json").read_text(encoding="utf-8")) == {"claims": []}
 
     list_result = runner.invoke(app, ["review", "list", "--path", str(tmp_path)])
     assert list_result.exit_code == 0
@@ -48,6 +50,9 @@ def test_ingest_review_can_be_listed_shown_and_applied(tmp_path: Path) -> None:
     assert apply_result.exit_code == 0
     assert "Applied review" in apply_result.stdout
     assert (tmp_path / "vault/wiki/sources/reviewed.md").exists()
+    claims = json.loads((tmp_path / "vault/state/claims.json").read_text(encoding="utf-8"))["claims"]
+    assert claims
+    assert claims[0]["introduced_by_source_id"] == "reviewed"
     assert not (tmp_path / f"vault/state/reviews/pending/{review_id}.json").exists()
     assert (tmp_path / f"vault/state/reviews/applied/{review_id}.json").exists()
 

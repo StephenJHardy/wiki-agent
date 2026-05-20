@@ -182,3 +182,24 @@ def test_viewer_exposes_claim_timeline_sources_and_page_provenance(tmp_path: Pat
     assert "Provenance Provenance" in page_response.text
     assert "Source Lineage" in page_response.text
     assert "provenance" in page_response.text
+
+
+def test_viewer_handles_empty_and_missing_provenance_states(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+
+    client = TestClient(create_viewer_app(base_path=tmp_path))
+
+    timeline_response = client.get("/timeline")
+    missing_source_response = client.get("/sources/missing-source")
+    missing_page_response = client.get("/page/missing-page/provenance")
+
+    assert timeline_response.status_code == 200
+    assert "No claim records yet." in timeline_response.text
+
+    assert missing_source_response.status_code == 200
+    assert "Source Not Found" in missing_source_response.text
+    assert "missing-source" in missing_source_response.text
+
+    assert missing_page_response.status_code == 200
+    assert "Page Not Found" in missing_page_response.text
+    assert "missing-page" in missing_page_response.text

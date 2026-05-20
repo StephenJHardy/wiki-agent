@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from typer.testing import CliRunner
@@ -60,6 +61,12 @@ def test_query_answers_from_wiki_and_can_file_analysis(tmp_path: Path) -> None:
 
     log_text = (tmp_path / "vault/wiki/log.md").read_text(encoding="utf-8")
     assert "query | Retrieval Brief" in log_text
+
+    query_artifacts = sorted((tmp_path / "vault/state/operations").glob("*-query.json"))
+    assert query_artifacts
+    artifact = json.loads(query_artifacts[-1].read_text(encoding="utf-8"))
+    assert artifact["details"]["claim_ids"]
+    assert artifact["details"]["claim_ids"][0].startswith("retrieval-")
 
 
 def test_query_reports_when_wiki_is_insufficient(tmp_path: Path) -> None:

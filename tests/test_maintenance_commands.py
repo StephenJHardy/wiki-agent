@@ -76,6 +76,50 @@ def test_refresh_source_backfills_publication_metadata_and_timelines(tmp_path: P
     assert "refresh | Provenance Paper" in log_text
 
 
+def test_refresh_source_replaces_previous_claims_for_source(tmp_path: Path) -> None:
+    assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
+
+    source_path = tmp_path / "vault/raw/sources/claims.md"
+    source_path.write_text(
+        "\n".join(
+            [
+                "# Claims Paper",
+                "",
+                "## Provenance",
+                "",
+                "- Original claim should be replaced.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    assert runner.invoke(app, ["ingest", "claims.md", "--path", str(tmp_path), "--no-llm"]).exit_code == 0
+
+    claims_before = json.loads((tmp_path / "vault/state/claims.json").read_text(encoding="utf-8"))["claims"]
+    assert len(claims_before) == 1
+    assert claims_before[0]["text"] == "Original claim should be replaced."
+
+    source_path.write_text(
+        "\n".join(
+            [
+                "# Claims Paper",
+                "",
+                "## Provenance",
+                "",
+                "- Replacement claim should be current.",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    result = runner.invoke(app, ["refresh-source", "claims", "--path", str(tmp_path), "--no-llm"])
+
+    assert result.exit_code == 0
+    claims_after = json.loads((tmp_path / "vault/state/claims.json").read_text(encoding="utf-8"))["claims"]
+    assert len(claims_after) == 1
+    assert claims_after[0]["text"] == "Replacement claim should be current."
+    assert "Original claim should be replaced." not in json.dumps(claims_after)
+
+
 def test_refresh_source_all_refreshes_registered_sources(tmp_path: Path) -> None:
     assert runner.invoke(app, ["init", str(tmp_path)]).exit_code == 0
 
